@@ -13,7 +13,7 @@
 #import <stdio.h>
 #import <stdlib.h>
 #import <math.h>
-#import "orion_rns.h"
+#import "rns.h"
 
 static int g_pass = 0, g_fail = 0;
 

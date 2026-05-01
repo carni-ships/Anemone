@@ -31,7 +31,7 @@
 #import <stdbool.h>
 #import <stdint.h>
 #import "ane_runtime.h"
-#import "orion_rns.h"
+#import "rns.h"
 
 // ============================================================================
 // Dilithium-3 Parameters

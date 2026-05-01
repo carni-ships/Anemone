@@ -26,9 +26,9 @@
 #import "ane_runtime.h"
 #import "iosurface_tensor.h"
 #import "mil_builder.h"
-#import "orion_mil_cache.h"
-#import "orion_rns.h"
-#import "orion_latticezk.h"
+#import "mil_cache.h"
+#import "rns.h"
+#import "latticezk.h"
 
 static int g_pass = 0, g_fail = 0;
 

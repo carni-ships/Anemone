@@ -1,7 +1,7 @@
 // orion_conv_pcs.m — Convolution-Based Polynomial Commitment Scheme
 
-#import "orion_conv_pcs.h"
-#import "orion_mil_cache.h"
+#import "conv_pcs.h"
+#import "mil_cache.h"
 #import "mil_builder.h"
 #import "iosurface_tensor.h"
 #import <stdlib.h>

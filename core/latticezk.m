@@ -1,7 +1,7 @@
 // orion_latticezk.m — ANE LatticeZK Infrastructure Implementation
 
-#import "orion_latticezk.h"
-#import "orion_mil_cache.h"
+#import "latticezk.h"
+#import "mil_cache.h"
 #import "mil_builder.h"
 #import "iosurface_tensor.h"
 #import <stdlib.h>

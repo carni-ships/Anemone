@@ -1,6 +1,6 @@
 // orion_rns.m — RNS Utilities Implementation
 
-#import "orion_rns.h"
+#import "rns.h"
 #import <stdlib.h>
 #import <string.h>
 #import <math.h>
