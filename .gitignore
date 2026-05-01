@@ -1,0 +1,90 @@
+# Build
+build/
+DerivedData/
+*.xcworkspace
+xcuserdata/
+*.o
+*.a
+*.dylib
+
+# CLI binary
+/orion
+
+# Test binaries
+tests/test_ane_runtime
+tests/test_mil_builder
+tests/test_cpu_forward
+tests/test_decode
+tests/test_tokenizer
+tests/test_ane_prefill
+tests/test_cpu_training_ops
+tests/test_data_loader
+tests/test_infer_golden
+tests/test_sp_tokenizer
+tests/test_train_kernels
+tests/test_train_smoke
+tests/test_program_cache
+tests/test_decode_ane
+tests/test_decode_ane_step
+tests/test_infer_golden_ane
+tests/test_bench_decode
+tests/test_delta_compile
+tests/test_lora
+tests/*.dSYM/
+
+# Weight blobs (large binary files)
+model/blobs/*
+!model/blobs/.gitkeep
+
+# Weight files (downloaded, large)
+model/weights/*.bin
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# Vendor (upstream clones)
+vendor/
+
+# Data (training data)
+data/
+
+# Tokenizer data files (small, needed for inference)
+!tokenizer/data/
+
+# Experiments (binaries only, source tracked)
+experiments/*.o
+experiments/hello_mil
+experiments/spike_single_token
+experiments/spike_e5_binary
+experiments/spike_e5_patch
+
+# Docs (generated logs)
+docs/*.txt
+
+# Benchmark baselines (generated)
+benchmarks/
+
+# Checkpoints
+checkpoints/
+*.ckpt
+
+# Internal project management (not for public repo)
+CLAUDE.md
+CHECKPOINT.md
+STATUS.md
+TASKS.md
+ORION_v2_ANE_LLM_SPEC.md
+ORION_v3_ANE_LLM_SPEC.md
+ORION_DESIGN_REVIEW.md
