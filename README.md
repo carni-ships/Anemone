@@ -165,12 +165,13 @@ Anemone/
 
 ## History
 
-Anemone was originally part of the [Orion](https://github.com/carni-ships/Orion) project (Apple Neural Engine LLM runtime). It was extracted to provide dedicated ZK-specific ANE primitives for the Crystalline-EVM project.
+Anemone is an independent project that uses the same low-level ANE techniques as Orion for writing MIL kernels. We are not affiliated with Orion — we simply studied their ANE implementation to understand how to write efficient ANE kernels for ZK operations.
 
 Key differences from Orion:
 - **Focus**: ZK proving (MatVec, Poseidon2, NTT) vs LLM inference
 - **Field**: Lattice finite field Q=8383489 vs float16
 - **API**: Direct Rust bindings vs C CLI
+- **Origin**: Independent implementation using Orion's techniques as reference
 
 ---
 
