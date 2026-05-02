@@ -168,6 +168,14 @@ A[i * l + j] = (float)val / 128.0f;  // [-1, 1] range
 
 4. **CRT Correctness**: ✅ VERIFIED - RNS moduli {97, 101, 103, 107, 109} product ≈ 47.3 bits > Q=23.2 bits, no aliasing
 5. **ANE/CPU Consistency**: ⚠️ PARTIAL - Different algorithms (ANE uses RNS+CRT, CPU uses direct mod Q), mathematically equivalent but not byte-identical
+
+   **Practical verification approach**: Property-based testing with random inputs:
+   - Generate N random matrix-vector pairs
+   - Compute via ANE (RNS+CRT) and CPU (direct mod Q)
+   - Assert `result_ane[i] == result_cpu[i]` for all i
+   - Test with 10,000+ random inputs for high confidence
+
+   This empirical approach is sufficient for production - formal proof would require machine verification (Coq/Lean) which is beyond implementation scope.
 6. **Fiat-Shamir Determinism**: ✅ VERIFIED - SHA-256 transcript is deterministic
 
 ### 4.3 Security Properties
