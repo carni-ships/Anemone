@@ -167,14 +167,18 @@ A[i * l + j] = (float)val / 128.0f;  // [-1, 1] range
 ### 4.2 Remaining Tasks
 
 4. **CRT Correctness**: ✅ VERIFIED - RNS moduli {97, 101, 103, 107, 109} product ≈ 47.3 bits > Q=23.2 bits, no aliasing
-5. **ANE/CPU Consistency**: Partial - `cpu_matvec()` fallback exists but simplified (no ANE fallback path in C code)
+5. **ANE/CPU Consistency**: ⚠️ PARTIAL - Different algorithms (ANE uses RNS+CRT, CPU uses direct mod Q), mathematically equivalent but not byte-identical
 6. **Fiat-Shamir Determinism**: ✅ VERIFIED - SHA-256 transcript is deterministic
 
-### 4.3 Security Properties (Future Work)
+### 4.3 Security Properties
 
-7. **Completeness Proof**: ∀(pk,witness), Verify(Prove) = ACCEPT
-8. **Soundness Proof**: Verify(proof) = ACCEPT → prover knows witness
-9. **ZK Proof**: Transcript leaks no witness info beyond commitment
+| Property | Status | Notes |
+|----------|--------|-------|
+| **Completeness** | ⚠️ PARTIAL | Works for valid witnesses, but response bounds check added |
+| **Soundness** | ⚠️ PARTIAL | Fixed matrix expansion (was weak), transcript overflow fixed |
+| **Zero-Knowledge** | ⚠️ UNVERIFIED | Transcript reveals commitment hash, not witness directly |
+
+**Note**: Full formal proofs require machine-verifiable proofs (Coq/Lean) and are beyond scope of this implementation.
 
 ---
 
