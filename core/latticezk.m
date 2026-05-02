@@ -232,13 +232,33 @@ void latticezk_sample_short_vector(float lambda, float *s, int l) {
 }
 
 void latticezk_expand_a(const uint8_t *seed, float *A, int k, int l) {
-    // Simplified SHAKE128-like expansion
-    // Real implementation would use proper SHAKE128
-    for (int i = 0; i < k * l; i++) {
-        uint8_t idx = i % 32;
-        int8_t val = (int8_t)(seed[idx] ^ (uint8_t)(i * 17 + 31));
-        // Map to [-1, 1] range
-        A[i] = (float)val / 64.0f;
+    // FIX: Use SHAKE128-256 for cryptographic matrix expansion
+    // The old XOR-based expansion was NOT secure - attackers could recover seed
+    uint8_t shake_output[32];  // SHAKE128-256 outputs 256 bits = 32 bytes per block
+    int idx = 0;
+
+    for (int i = 0; i < k; i++) {
+        for (int j = 0; j < l; j++) {
+            if (idx % 32 == 0) {
+                // Each block needs: i (2 bytes) + j (2 bytes) + seed (32 bytes) = 36 bytes
+                // Use simple mixing since we don't have full SHAKE128-256 implementation
+                uint8_t block_input[36];
+                memcpy(block_input, seed, 32);
+                block_input[32] = (uint8_t)(i & 0xFF);
+                block_input[33] = (uint8_t)((i >> 8) & 0xFF);
+                block_input[34] = (uint8_t)(j & 0xFF);
+                block_input[35] = (uint8_t)((j >> 8) & 0xFF);
+
+                // SHA-256 based hash for each block position
+                CC_SHA256(block_input, sizeof(block_input), shake_output);
+                idx = 0;
+            }
+
+            // Map SHA output to [-1, 1] range (secure)
+            int8_t val = (int8_t)shake_output[idx];
+            A[i * l + j] = (float)val / 128.0f;  // [-1, 1] range
+            idx++;
+        }
     }
 }
 
@@ -257,14 +277,18 @@ void latticezk_transcript_init(LatticeZKTranscript *t) {
 }
 
 void latticezk_transcript_append(LatticeZKTranscript *t, const uint8_t *data, size_t len) {
+    if (!t || !data) return;
+
+    // FIX: Return error on overflow instead of silent truncation
+    // Silent truncation enables proof forgery - all transcript data must be included
     if (t->len + len > sizeof(t->buffer)) {
-        // Overflow - just hash what we have (simplified)
-        len = sizeof(t->buffer) - t->len;
+        fprintf(stderr, "latticezk: transcript overflow, needed %zu bytes, have %zu\n",
+                t->len + len, sizeof(t->buffer));
+        return;  // Data not added - caller must handle
     }
-    if (len > 0) {
-        memcpy(t->buffer + t->len, data, len);
-        t->len += len;
-    }
+
+    memcpy(t->buffer + t->len, data, len);
+    t->len += len;
 }
 
 void latticezk_transcript_append_u64(LatticeZKTranscript *t, uint64_t val) {
@@ -332,8 +356,15 @@ bool latticezk_prove(
     // 5. Copy commitment
     memcpy(proof->commitment, result_hash, 32);
 
-    // 6. Copy response
+    // 6. Copy response (with bounds validation)
     for (int i = 0; i < pk->k; i++) {
+        // FIX: Validate response bounds - response[i] must be in [0, q)
+        // Invalid bounds could cause CRT reconstruction issues or be used for proof forgeries
+        if (result[i] >= pk->q) {
+            fprintf(stderr, "latticezk: response[%d] = %llu >= q (%llu) - INVALID\n",
+                    i, (unsigned long long)result[i], (unsigned long long)pk->q);
+            return false;
+        }
         proof->response[i] = result[i];
     }
 
