@@ -110,4 +110,51 @@ int orion_tile_size_at(const TileLayout *tile, int idx);
 /// @return Offset of the specified tile
 int orion_tile_offset_at(const TileLayout *tile, int idx);
 
+// ============================================================================
+// Optimized CRT Reconstruction (Precomputed Constants)
+// ============================================================================
+
+/// Precomputed constants for fast CRT reconstruction with fixed RNS base
+/// Computes Mi = M/mod_i and Mi_inv = Mi^{-1} mod mod_i once at initialization
+typedef struct {
+    int n;                      // Number of moduli
+    const RNSMod *mods;         // Moduli array (not owned)
+    uint64_t M;                 // Product of all moduli
+    uint64_t *Mi;              // M / mod_i for each i [n] (owned)
+    uint64_t *Mi_inv;           // (M/mod_i)^{-1} mod mod_i for each i [n] (owned)
+} OrionCRTP;
+
+/// Initialize precomputed CRT constants for a given RNS base
+/// @param crt     Output: precomputed constants structure
+/// @param mods   Array of modulus descriptors
+/// @param n      Number of moduli
+/// @return true on success
+bool orion_crt_constants_init(OrionCRTP *crt, const RNSMod *mods, int n);
+
+/// Free precomputed CRT constants
+/// @param crt  Constants structure to free
+void orion_crt_constants_free(OrionCRTP *crt);
+
+/// Fast CRT reconstruction using precomputed constants
+/// @param crt       Precomputed constants (from orion_crt_constants_init)
+/// @param residues  Array of residues (one per modulus)
+/// @return Reconstructed number mod M
+uint64_t orion_crt_reconstruct_fast(const OrionCRTP *crt, const uint32_t *residues);
+
+// ============================================================================
+// NTT Utilities
+// ============================================================================
+
+/// Generate twiddle factors for NTT of size n
+/// @param twiddles  Output array [n]
+/// @param n         Transform size
+/// @param g         Primitive root of the field
+/// @param q         Modulus (must be prime)
+void orion_ntt_generate_twiddles(uint32_t *twiddles, int n, uint32_t g, uint32_t q);
+
+/// Bit reversal permutation for in-place NTT
+/// @param data  Data to permute
+/// @param n     Size of data (must be power of 2)
+void orion_ntt_bit_reverse(uint32_t *data, int n);
+
 #endif // ORION_RNS_H

@@ -124,6 +124,7 @@ typedef struct {
     const RNSMod *mods;         // Moduli array
     uint64_t product;          // M = product of all moduli
     double bits;               // Bit width of M
+    OrionCRTP *crt;            // Precomputed CRT constants (owned)
 } LatticeZKRNSConfig;
 
 /// Initialize RNS config for Dilithium-3
@@ -310,5 +311,88 @@ bool latticezk_verify_sig(
     const uint8_t *m, size_t m_len,
     const uint8_t *signature
 );
+
+#pragma mark - T024: Batch Polynomial Evaluation
+
+/// Evaluate N polynomials at same point using Horner's method
+/// @param coeffs     [n_polys, degree+1] row-major coefficients
+/// @param x          [seq] values to evaluate at
+/// @param n_polys    Number of polynomials
+/// @param degree     Degree of each polynomial
+/// @param results_out [n_polys, seq] output (row-major)
+/// @param seq        Number of evaluation points
+/// @return true on success
+bool latticezk_batch_poly_eval(
+    const float *coeffs,
+    const float *x,
+    int n_polys,
+    int degree,
+    float *results_out,
+    int seq
+);
+
+#pragma mark - T025: Inner Product
+
+/// Compute inner product <a,b> = sum(a_i * b_i)
+/// @param a        First vector [n]
+/// @param b        Second vector [n]
+/// @param n        Vector length
+/// @param seq      Sequence length for batching
+/// @param result   Output: inner product result
+/// @return true on success
+bool latticezk_inner_product(
+    const float *a,
+    const float *b,
+    int n,
+    int seq,
+    float *result
+);
+
+#pragma mark - T026: Batch MatVec (Matrix-Matrix Multiplication)
+
+/// Batch matrix-matrix multiplication: C = A * B for multiple B vectors
+/// A is k×l, B is l×m, output C is k×m
+/// @param A        k×l matrix (row-major)
+/// @param B        l×m matrix (row-major)
+/// @param k        A rows
+/// @param l        A cols / B rows
+/// @param m        B cols
+/// @param C_out    k×m output (row-major)
+/// @param rns      RNS configuration for modular arithmetic
+/// @return true on success
+bool latticezk_batch_matvec(
+    const float *A,
+    const float *B,
+    int k, int l, int m,
+    float *C_out,
+    const LatticeZKRNSConfig *rns
+);
+
+#pragma mark - T027: NTT (Number Theoretic Transform)
+
+/// Forward NTT (ANE-accelerated for N <= 16, CPU for larger)
+/// @param data  Input/output data (in-place)
+/// @param n     Transform size
+/// @param q     Modulus
+/// @param g     Primitive root
+/// @return true if ANE was used, false if fell back to CPU
+bool orion_ntt_forward(uint32_t *data, int n, uint32_t q, uint32_t g);
+
+/// Batch NTT for multiple small polynomials (N <= 16)
+/// Batches n_polys polynomials together for ANE efficiency
+bool orion_ntt_forward_batch(uint32_t *data, int n_polys, int n,
+                               uint32_t q, uint32_t g);
+
+/// RNS-decomposed NTT for large N
+/// Decomposes into RNS residues, processes per residue, reconstructs via CRT
+bool orion_ntt_forward_rns(const uint32_t *data_in, uint32_t *data_out,
+                             int n, uint32_t q, uint32_t g,
+                             const RNSMod *mods, int n_mods);
+
+/// Best NTT implementation selector
+/// N <= 16: batch ANE
+/// N <= 256: hybrid (ANE butterfly + CPU twiddle)
+/// N > 256: RNS decomposition
+bool orion_ntt_forward_v2(uint32_t *data, int n, uint32_t q, uint32_t g);
 
 #endif // ORION_LATTICEZK_H

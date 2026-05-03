@@ -102,4 +102,71 @@ NSData* orion_make_causal_mask_blob(int seq_len);
 /// Return MIL-style blob path for causal mask: "@model_path/masks/causal_{seq_len}.bin"
 NSString* orion_causal_mask_path(int seq_len);
 
+#pragma mark - T024: Batch Polynomial Evaluation (Horner)
+
+/// Generate Horner evaluation for N polynomials at the same point.
+/// Uses chain of multiply-accumulate: P(x) = c_0 + x*(c_1 + x*(c_2 + ...))
+/// @param prefix   Unique name prefix
+/// @param n_polys  Number of polynomials to evaluate
+/// @param degree   Degree of each polynomial (number of coefficients - 1)
+/// @param seq      Sequence length (batch dimension)
+/// @param coeff_path BLOBFILE path for coefficients [n_polys, (degree+1)*n_polys]
+/// @return MIL statements. Output: "{prefix}_out" [1, n_polys, 1, seq]
+NSString* orion_mil_poly_eval_horner(const char* prefix, int n_polys, int degree,
+                                     int seq, const char* coeff_path);
+
+#pragma mark - T025: Inner Product
+
+/// Create weight blob for inner product: diagonal matrix with b values
+/// @param b    Input vector b (will become diagonal)
+/// @param n    Length of vectors
+/// @return NSData with 128-byte header + fp16 data
+NSData* orion_make_inner_product_blob(const float *b, int n);
+
+/// Generate inner product <a,b> = sum(a_i * b_i) using conv1x1.
+/// Input a [1, n, 1, seq], b is baked into diagonal weight matrix.
+/// @param prefix  Unique name prefix
+/// @param n       Vector length
+/// @param seq     Sequence length
+/// @param a_input Name of input tensor a
+/// @param b_path  BLOBFILE path for diagonal weight blob
+/// @return MIL statements. Output: "{prefix}_out" [1, 1, 1, seq]
+NSString* orion_mil_inner_product(const char* prefix, int n, int seq,
+                                  const char* a_input, const char* b_path);
+
+#pragma mark - T026: Matrix-Matrix Multiplication (Batched MatVec)
+
+/// Generate MatMat multiplication: C = A * B where A is k×l and B is l×m
+/// @param prefix  Unique name prefix
+/// @param k       A matrix rows (also C rows)
+/// @param l       A matrix cols (also B rows)
+/// @param m       B matrix cols (also C cols)
+/// @param seq     Sequence length
+/// @param a_path  BLOBFILE path for A weights [k, l, 1, 1]
+/// @param b_input Name of input tensor B [1, l, 1, m]
+/// @return MIL statements. Output: "{prefix}_out" [1, k, 1, m]
+NSString* orion_mil_matmat(const char* prefix, int k, int l, int m, int seq,
+                           const char* a_path, const char* b_input);
+
+#pragma mark - T027: NTT Butterfly (small N only, N <= 16)
+
+/// Generate single NTT butterfly stage: (a,b) -> (a+b*w, a-b*w)
+/// For N <= 16, twiddle factors can be baked into weights.
+/// @param prefix    Unique name prefix
+/// @param n         Transform size (must be <= 16)
+/// @param seq       Sequence length
+/// @param tw_path   BLOBFILE path for twiddle weights (n×n diagonal matrix)
+/// @return MIL statements. Output: "{prefix}_out" [1, n, 1, seq]
+NSString* orion_mil_ntt_butterfly(const char* prefix, int n, int seq,
+                                   const char* tw_path);
+
+/// Pure butterfly MIL program (no twiddles)
+/// Computes add/sub for NTT butterfly stages on ANE
+/// @param prefix    Unique name prefix
+/// @param n         Transform size
+/// @param weight_path BLOBFILE path for butterfly weights
+/// @return MIL statements. Output: "{prefix}_y" [1, n, 1, 1]
+NSString* orion_mil_ntt_pure_butterfly(const char* prefix, int n,
+                                        const char* weight_path);
+
 #endif // ORION_MIL_BUILDER_H

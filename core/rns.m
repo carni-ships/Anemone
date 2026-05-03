@@ -66,6 +66,75 @@ void orion_rns_decompose(uint64_t x, const RNSMod *mods, int n, uint32_t *residu
     }
 }
 
+// ============================================================================
+// Optimized CRT Reconstruction (Precomputed Constants)
+// ============================================================================
+
+bool orion_crt_constants_init(OrionCRTP *crt, const RNSMod *mods, int n) {
+    if (!crt || !mods || n <= 0) return false;
+
+    crt->n = n;
+    crt->mods = mods;
+
+    // Compute M = product of all moduli
+    crt->M = 1;
+    for (int i = 0; i < n; i++) {
+        crt->M *= mods[i].mod;
+    }
+
+    // Allocate arrays
+    crt->Mi = (uint64_t *)malloc(n * sizeof(uint64_t));
+    crt->Mi_inv = (uint64_t *)malloc(n * sizeof(uint64_t));
+    if (!crt->Mi || !crt->Mi_inv) {
+        free(crt->Mi);
+        free(crt->Mi_inv);
+        return false;
+    }
+
+    // Precompute Mi and Mi_inv for each modulus
+    for (int i = 0; i < n; i++) {
+        uint64_t mod_i = mods[i].mod;
+        crt->Mi[i] = crt->M / mod_i;
+
+        // Compute (M/mod_i)^{-1} mod mod_i using extended GCD
+        int64_t x, y;
+        orion_extended_gcd((int64_t)(crt->Mi[i] % mod_i), (int64_t)mod_i, &x, &y);
+        int64_t inv = x % (int64_t)mod_i;
+        if (inv < 0) inv += mod_i;
+        crt->Mi_inv[i] = (uint64_t)inv;
+    }
+
+    return true;
+}
+
+void orion_crt_constants_free(OrionCRTP *crt) {
+    if (!crt) return;
+    free(crt->Mi);
+    free(crt->Mi_inv);
+    crt->Mi = NULL;
+    crt->Mi_inv = NULL;
+    crt->n = 0;
+}
+
+uint64_t orion_crt_reconstruct_fast(const OrionCRTP *crt, const uint32_t *residues) {
+    uint64_t result = 0;
+
+    for (int i = 0; i < crt->n; i++) {
+        uint64_t mod_i = crt->mods[i].mod;
+        uint64_t Mi = crt->Mi[i];
+        uint64_t Mi_inv = crt->Mi_inv[i];
+
+        // term = residues[i] * Mi * Mi_inv mod M
+        uint64_t term = residues[i] % mod_i;
+        term = (term * Mi) % crt->M;
+        term = (term * Mi_inv) % crt->M;
+
+        result = (result + term) % crt->M;
+    }
+
+    return result;
+}
+
 void orion_tile_layout_init(TileLayout *tile, int dim, int max_tile) {
     memset(tile, 0, sizeof(TileLayout));
 
@@ -99,4 +168,35 @@ int orion_tile_size_at(const TileLayout *tile, int idx) {
 int orion_tile_offset_at(const TileLayout *tile, int idx) {
     if (idx < 0 || idx >= tile->n_tiles) return 0;
     return tile->tile_offsets[idx];
+}
+
+#pragma mark - NTT Utilities
+
+void orion_ntt_generate_twiddles(uint32_t *twiddles, int n, uint32_t g, uint32_t q) {
+    // Generate twiddle factors: w[i] = g^i mod q
+    uint32_t w = 1;
+    for (int i = 0; i < n; i++) {
+        twiddles[i] = w;
+        uint64_t prod = (uint64_t)w * g;
+        w = (uint32_t)(prod % q);
+    }
+}
+
+void orion_ntt_bit_reverse(uint32_t *data, int n) {
+    // Bit reversal permutation for FFT
+    int j = 0;
+    for (int i = 0; i < n; i++) {
+        if (j > i) {
+            uint32_t tmp = data[i];
+            data[i] = data[j];
+            data[j] = tmp;
+        }
+        // Update j with bit reversal
+        int x = n >> 1;
+        while (x && (j & x)) {
+            j ^= x;
+            x >>= 1;
+        }
+        j ^= x;
+    }
 }

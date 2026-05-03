@@ -166,7 +166,15 @@ static NSString *build_butterfly_mil(int dim, int seq) {
     [body appendFormat:@"        string to16 = const()[name = string(\"to16\"), val = string(\"fp16\")];\n"];
     [body appendFormat:@"        tensor<fp16, [1, %d, 1, %d]> x16 = cast(dtype = to16, x = x)[name = string(\"cin\")];\n", dim, seq];
     [body appendFormat:@"        tensor<fp16, [%d, %d, 1, 1]> W = const()[name = string(\"W\"), val = tensor<fp16, [%d, %d, 1, 1]>(BLOBFILE(path = string(\"%s\"), offset = uint64(64)))];\n", dim, dim, dim, dim, [wpath UTF8String]];
-    [body appendFormat:@"        tensor<fp16, [1, %d, 1, %d]> c_out = conv(W, x16, stride = [1, 1], pad = valid, dilation = [1, 1], groups = 1)[name = string(\"bfly\")];\n", dim, seq];
+
+    // Conv constants (required for conv op)
+    [body appendFormat:@"        string pt = const()[name = string(\"pt\"), val = string(\"valid\")];\n"];
+    [body appendFormat:@"        tensor<int32, [2]> st = const()[name = string(\"st\"), val = tensor<int32, [2]>([1,1])];\n"];
+    [body appendFormat:@"        tensor<int32, [4]> pd = const()[name = string(\"pd\"), val = tensor<int32, [4]>([0,0,0,0])];\n"];
+    [body appendFormat:@"        tensor<int32, [2]> dl = const()[name = string(\"dl\"), val = tensor<int32, [2]>([1,1])];\n"];
+    [body appendFormat:@"        int32 gr = const()[name = string(\"gr\"), val = int32(1)];\n"];
+
+    [body appendFormat:@"        tensor<fp16, [1, %d, 1, %d]> c_out = conv(dilations = dl, groups = gr, pad = pd, pad_type = pt, strides = st, weight = W, x = x16)[name = string(\"bfly\")];\n", dim, seq];
     [body appendFormat:@"        string to32 = const()[name = string(\"to32\"), val = string(\"fp32\")];\n"];
     [body appendFormat:@"        tensor<fp32, [1, %d, 1, %d]> y = cast(dtype = to32, x = c_out)[name = string(\"out\")];\n", dim, seq];
 
