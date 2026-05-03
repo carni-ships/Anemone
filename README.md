@@ -6,10 +6,10 @@ Hardware-accelerated MatVec operations for SNARK, STARK, and lattice cryptograph
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           ANE Acceleration for ZK Proofs                   │
+│           ANE Acceleration for ZK Proofs                    │
 │                                                             │
 │  MatVec (Labrador)  ·  Poseidon2 Hash  ·  NTT               │
-│  ★ ~19 TFLOPS fp16 on M4 ANE ★                            │
+│  ★ ~19 TFLOPS fp16 on M4 ANE ★                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -36,24 +36,24 @@ For lattice-based SNARKs (like Labrador used in Crystalline-EVM), the dominant o
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                    Anemone Stack                             │
+│                    Anemone Stack                               │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  ┌──────────────────────────────────────────────────────────┐ │
-│  │              ZK Prover (Crystalline-EVM)                   │ │
+│  ┌─────────────────────────────────────────────────────────-─┐ │
+│  │              ZK Prover (Crystalline-EVM)                  │ │
 │  │   Labrador SNARK  ·  NovaIVC  ·  Poseidon2 commitments    │ │
-│  └──────────────────────────┬─────────────────────────────────┘ │
+│  └──────────────────────────┬────────────────────────────────┘ │
 │                             │                                  │
-│  ┌──────────────────────────┴─────────────────────────────────┐ │
-│  │              Anemone Runtime (orion_backend)                │ │
-│  │   orion_ane_init() · orion_compile_mil() · orion_eval()    │ │
-│  └──────────────────────────┬─────────────────────────────────┘ │
+│  ┌──────────────────────────┴────────────────────────────────┐ │
+│  │              Anemone Runtime (orion_backend)              │ │
+│  │   orion_ane_init() · orion_compile_mil() · orion_eval()   │ │
+│  └──────────────────────────┬────────────────────────────────┘ │
 │                             │                                  │
-│  ┌──────────────────────────┴─────────────────────────────────┐ │
-│  │              Apple Neural Engine                           │ │
-│  │   _ANEClient · _ANECompiler · MIL IR                        │ │
-│  │   IOSurface-backed fp16 MatVec                              │ │
-│  └─────────────────────────────────────────────────────────────┘ │
+│  ┌──────────────────────────┴────────────────────────────────┐ │
+│  │              Apple Neural Engine                          │ │
+│  │   _ANEClient · _ANECompiler · MIL IR                      │ │
+│  │   IOSurface-backed fp16 MatVec                            │ │
+│  └───────────────────────────────────────────────────────────┘ │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
