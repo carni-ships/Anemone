@@ -140,6 +140,11 @@ static NSString *build_latticezk_mil(int k, int l, int seq, int mod_idx) {
         @"y");
 }
 
+// Forward declarations for IOSurface pool
+static void iosurface_pool_init(int capacity);
+static IOSurfaceRef iosurface_pool_get(int channels, int seq_len, bool fp32);
+static void iosurface_pool_release(IOSurfaceRef surface);
+
 static NSData *make_blob_matrix_friendly(int k, int l, const float *data, int mod) {
     // Store matrix directly - values should already be in safe range [-2, 2]
     int ws = k * l * 2;
@@ -166,6 +171,12 @@ static bool eval_matvec_on_ane(
     float *result,
     int mod_idx
 ) {
+    // Initialize pool on first use
+    static dispatch_once_t once_token;
+    dispatch_once(&once_token, ^{
+        iosurface_pool_init(16);  // MatVec needs at most 2 surfaces per call
+    });
+
     NSString *mil_text = build_latticezk_mil(k, l, seq, mod_idx);
     NSString *key = [NSString stringWithFormat:@"@model_path/weights/A%d.bin", mod_idx];
     NSData *blob = make_blob_matrix_friendly(k, l, A, mod_idx);
@@ -180,9 +191,9 @@ static bool eval_matvec_on_ane(
         return false;
     }
 
-    // Create surfaces
-    IOSurfaceRef ioX = orion_tensor_create_f32(l, seq);
-    IOSurfaceRef ioY = orion_tensor_create_f32(k, seq);
+    // Get surfaces from pool (reuse if dimensions match)
+    IOSurfaceRef ioX = iosurface_pool_get(l, seq, true);
+    IOSurfaceRef ioY = iosurface_pool_get(k, seq, true);
 
     // Write input: broadcast s across seq dimension
     IOSurfaceLock(ioX, 0, NULL);
@@ -207,8 +218,9 @@ static bool eval_matvec_on_ane(
         IOSurfaceUnlock(ioY, kIOSurfaceLockReadOnly, NULL);
     }
 
-    CFRelease(ioX);
-    CFRelease(ioY);
+    // Release surfaces back to pool
+    iosurface_pool_release(ioX);
+    iosurface_pool_release(ioY);
     return ok;
 }
 
@@ -246,14 +258,17 @@ void latticezk_crt_reconstruct(
     uint64_t q,
     uint64_t *result
 ) {
-    uint32_t *residue_array = (uint32_t *)malloc(rns->n_mods * sizeof(uint32_t));
+    // Stack allocation for small n_mods (avoid malloc/free overhead)
+    // Max 16 moduli - fits easily on stack
+    uint32_t residue_array[16];
+    const int n_mods = rns->n_mods;
 
     // Use fast CRT if precomputed constants available
     bool use_fast = (rns->crt != NULL);
 
     for (int i = 0; i < k; i++) {
         // Collect residues for output[i]
-        for (int r = 0; r < rns->n_mods; r++) {
+        for (int r = 0; r < n_mods; r++) {
             float v = residues[r * k + i];
             // Convert to integer via rounding
             int32_t vi = (int32_t)(v + 0.5f);
@@ -267,14 +282,12 @@ void latticezk_crt_reconstruct(
         if (use_fast) {
             recon = orion_crt_reconstruct_fast(rns->crt, residue_array);
         } else {
-            recon = orion_crt_reconstruct(residue_array, rns->mods, rns->n_mods);
+            recon = orion_crt_reconstruct(residue_array, rns->mods, n_mods);
         }
 
         // Reduce mod q
         result[i] = recon % q;
     }
-
-    free(residue_array);
 }
 
 bool latticezk_matvec(
