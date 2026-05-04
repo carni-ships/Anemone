@@ -1224,6 +1224,12 @@ static bool eval_inner_product_on_ane(
     int seq,
     float *results_out
 ) {
+    // Initialize pool on first use
+    static dispatch_once_t once_token;
+    dispatch_once(&once_token, ^{
+        iosurface_pool_init(16);  // Inner product needs at most 2 surfaces
+    });
+
     // Build MIL program
     NSString *wpath = @"@model_path/weights/inner_prod.bin";
     NSString *mil_text = orion_mil_inner_product("ip", n, seq, "a", [wpath UTF8String]);
@@ -1238,9 +1244,9 @@ static bool eval_inner_product_on_ane(
         return false;
     }
 
-    // Create surfaces
-    IOSurfaceRef ioA = orion_tensor_create_f32(n, seq);
-    IOSurfaceRef ioY = orion_tensor_create_f32(1, seq);
+    // Get surfaces from pool
+    IOSurfaceRef ioA = iosurface_pool_get(n, seq, true);
+    IOSurfaceRef ioY = iosurface_pool_get(1, seq, true);
 
     // Write input a (broadcast across seq dimension)
     IOSurfaceLock(ioA, 0, NULL);
@@ -1264,8 +1270,9 @@ static bool eval_inner_product_on_ane(
         IOSurfaceUnlock(ioY, kIOSurfaceLockReadOnly, NULL);
     }
 
-    CFRelease(ioA);
-    CFRelease(ioY);
+    // Release surfaces back to pool
+    iosurface_pool_release(ioA);
+    iosurface_pool_release(ioY);
     return ok;
 }
 
@@ -1321,9 +1328,9 @@ static bool eval_matmat_on_ane(
         return false;
     }
 
-    // Create surfaces: B is [l, m], output C is [k, m]
-    IOSurfaceRef ioB = orion_tensor_create_f32(l, m);
-    IOSurfaceRef ioC = orion_tensor_create_f32(k, m);
+    // Get surfaces from pool: B is [l, m], output C is [k, m]
+    IOSurfaceRef ioB = iosurface_pool_get(l * m, seq, true);
+    IOSurfaceRef ioC = iosurface_pool_get(k * m, seq, true);
 
     // Write B matrix (broadcast across seq dimension)
     IOSurfaceLock(ioB, 0, NULL);
@@ -1351,8 +1358,8 @@ static bool eval_matmat_on_ane(
         IOSurfaceUnlock(ioC, kIOSurfaceLockReadOnly, NULL);
     }
 
-    CFRelease(ioB);
-    CFRelease(ioC);
+    iosurface_pool_release(ioB);
+    iosurface_pool_release(ioC);
     return ok;
 }
 
@@ -1480,9 +1487,9 @@ bool orion_ntt_forward(
         return false;
     }
 
-    // Create surfaces
-    IOSurfaceRef ioX = orion_tensor_create_f32(n, 1);
-    IOSurfaceRef ioY = orion_tensor_create_f32(n, 1);
+    // Get surfaces from pool
+    IOSurfaceRef ioX = iosurface_pool_get(n, 1, true);
+    IOSurfaceRef ioY = iosurface_pool_get(n, 1, true);
 
     // Write input (convert to float)
     IOSurfaceLock(ioX, 0, NULL);
@@ -1506,8 +1513,8 @@ bool orion_ntt_forward(
         IOSurfaceUnlock(ioY, kIOSurfaceLockReadOnly, NULL);
     }
 
-    CFRelease(ioX);
-    CFRelease(ioY);
+    iosurface_pool_release(ioX);
+    iosurface_pool_release(ioY);
     if (!cached) free(twiddles);
     return ok;
 }
@@ -1570,9 +1577,9 @@ bool orion_ntt_forward_batch(
         return false;
     }
 
-    // Create surfaces - pack all polynomials as channels
-    IOSurfaceRef ioX = orion_tensor_create_f32(n, n_polys);
-    IOSurfaceRef ioY = orion_tensor_create_f32(n, n_polys);
+    // Get surfaces from pool - pack all polynomials as channels
+    IOSurfaceRef ioX = iosurface_pool_get(n * n_polys, 1, true);
+    IOSurfaceRef ioY = iosurface_pool_get(n * n_polys, 1, true);
 
     // Write input
     IOSurfaceLock(ioX, 0, NULL);
@@ -1599,8 +1606,8 @@ bool orion_ntt_forward_batch(
         IOSurfaceUnlock(ioY, kIOSurfaceLockReadOnly, NULL);
     }
 
-    CFRelease(ioX);
-    CFRelease(ioY);
+    iosurface_pool_release(ioX);
+    iosurface_pool_release(ioY);
     if (!cached) free(twiddles);
     return ok;
 }
@@ -1647,9 +1654,9 @@ bool orion_ntt_forward_hybrid(
     int tmp = n;
     while (tmp > 1) { tmp >>= 1; log_n++; }
 
-    // Allocate IOSurfaces for ping-pong
-    IOSurfaceRef ioA = orion_tensor_create_f32(n, 1);
-    IOSurfaceRef ioB = orion_tensor_create_f32(n, 1);
+    // Get IOSurfaces from pool for ping-pong
+    IOSurfaceRef ioA = iosurface_pool_get(n, 1, true);
+    IOSurfaceRef ioB = iosurface_pool_get(n, 1, true);
     IOSurfaceRef ioX = ioA;
     IOSurfaceRef ioY = ioB;
 
@@ -1720,16 +1727,16 @@ bool orion_ntt_forward_hybrid(
 
         OrionProgram *prog = orion_mil_cache_get([mil_text UTF8String], wdict, tag);
         if (!prog) {
-            CFRelease(ioA);
-            CFRelease(ioB);
+            iosurface_pool_release(ioA);
+            iosurface_pool_release(ioB);
             return false;
         }
 
         // ANE butterfly: add/sub
         bool ok = orion_eval(prog, (IOSurfaceRef[]){ioX}, 1, (IOSurfaceRef[]){ioY}, 1);
         if (!ok) {
-            CFRelease(ioA);
-            CFRelease(ioB);
+            iosurface_pool_release(ioA);
+            iosurface_pool_release(ioB);
             return false;
         }
 
@@ -1762,8 +1769,8 @@ bool orion_ntt_forward_hybrid(
     }
     IOSurfaceUnlock(ioX, kIOSurfaceLockReadOnly, NULL);
 
-    CFRelease(ioA);
-    CFRelease(ioB);
+    iosurface_pool_release(ioA);
+    iosurface_pool_release(ioB);
     return true;
 }
 
