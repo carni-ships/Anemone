@@ -141,6 +141,17 @@ void orion_crt_constants_free(OrionCRTP *crt);
 /// @return Reconstructed number mod M
 uint64_t orion_crt_reconstruct_fast(const OrionCRTP *crt, const uint32_t *residues);
 
+/// Batch CRT reconstruction using precomputed constants (optimized for multiple outputs)
+/// Processes multiple outputs at once for better cache locality
+/// @param crt       Precomputed constants
+/// @param residues  Array of residues [n_mods * k] (row-major)
+/// @param k         Number of outputs
+/// @param result    Output: k-element result array
+void orion_crt_reconstruct_fast_batch(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result);
+
+/// Fast CRT for small k (1-4) with loop unrolling
+void orion_crt_reconstruct_fast_small_k(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result);
+
 // ============================================================================
 // NTT Utilities
 // ============================================================================

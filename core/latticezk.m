@@ -262,6 +262,7 @@ void latticezk_crt_reconstruct(
     // Max 16 moduli - fits easily on stack
     uint32_t residue_array[16];
     const int n_mods = rns->n_mods;
+    const uint64_t M = rns->product;
 
     // Use fast CRT if precomputed constants available
     bool use_fast = (rns->crt != NULL);
@@ -287,6 +288,66 @@ void latticezk_crt_reconstruct(
 
         // Reduce mod q
         result[i] = recon % q;
+    }
+}
+
+// Batch CRT reconstruction for multiple outputs at once
+// Processes k elements together for better cache locality
+void latticezk_crt_reconstruct_batch(
+    const float *residues,
+    int k,
+    const LatticeZKRNSConfig *rns,
+    uint64_t q,
+    uint64_t *result
+) {
+    // Stack allocation for batch processing
+    // Process all moduli for all k outputs together
+    uint32_t batch_residues[16 * 64];  // Max 16 moduli * 64 outputs
+    const int n_mods = rns->n_mods;
+
+    // Precompute moduli products for batch
+    const uint64_t M = rns->product;
+
+    // Convert all residues at once (better cache locality)
+    for (int r = 0; r < n_mods; r++) {
+        uint64_t mod_r = rns->mods[r].mod;
+        for (int i = 0; i < k; i++) {
+            float v = residues[r * k + i];
+            int32_t vi = (int32_t)(v + 0.5f);
+            if (vi < 0) vi = vi % (int32_t)mod_r + (int32_t)mod_r;
+            batch_residues[r * k + i] = (uint32_t)(vi % (int32_t)mod_r);
+        }
+    }
+
+    // Use fast CRT if precomputed constants available
+    bool use_fast = (rns->crt != NULL);
+
+    if (use_fast) {
+        // Fast batch path: use precomputed Mi and Mi_inv
+        const uint64_t *Mi = rns->crt->Mi;
+        const uint64_t *Mi_inv = rns->crt->Mi_inv;
+
+        for (int i = 0; i < k; i++) {
+            uint64_t recon = 0;
+            for (int r = 0; r < n_mods; r++) {
+                uint64_t mod_r = rns->mods[r].mod;
+                uint64_t term = batch_residues[r * k + i] % mod_r;
+                term = (term * Mi[r]) % M;
+                term = (term * Mi_inv[r]) % M;
+                recon = (recon + term) % M;
+            }
+            result[i] = recon % q;
+        }
+    } else {
+        // Slow path: standard CRT
+        for (int i = 0; i < k; i++) {
+            uint32_t single_residues[16];
+            for (int r = 0; r < n_mods; r++) {
+                single_residues[r] = batch_residues[r * k + i];
+            }
+            uint64_t recon = orion_crt_reconstruct(single_residues, rns->mods, n_mods);
+            result[i] = recon % q;
+        }
     }
 }
 

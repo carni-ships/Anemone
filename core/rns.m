@@ -135,6 +135,79 @@ uint64_t orion_crt_reconstruct_fast(const OrionCRTP *crt, const uint32_t *residu
     return result;
 }
 
+// Batch CRT: convert all residues at once, then reconstruct
+void orion_crt_reconstruct_fast_batch(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result) {
+    // Preload to avoid repeated pointer dereferencing
+    const int n = crt->n;
+    const uint64_t M = crt->M;
+    const uint64_t *Mi = crt->Mi;
+    const uint64_t *Mi_inv = crt->Mi_inv;
+
+    // For small moduli, we can use optimized inline math
+    // Each term is small enough to multiply directly without overflow
+    for (int i = 0; i < k; i++) {
+        uint64_t recon = 0;
+        for (int r = 0; r < n; r++) {
+            uint64_t mod_r = crt->mods[r].mod;
+            uint64_t residue = residues[r * k + i];
+
+            // Inline multiplication - compiler can optimize this better
+            // when values are known to be small
+            uint64_t term = (residue * Mi[r]) % M;
+            term = (term * Mi_inv[r]) % M;
+            recon = (recon + term) % M;
+        }
+        result[i] = recon;
+    }
+}
+
+// Fast CRT for small k (1-4) with loop unrolling
+void orion_crt_reconstruct_fast_small_k(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result) {
+    const int n = crt->n;
+    const uint64_t M = crt->M;
+    const uint64_t *Mi = crt->Mi;
+    const uint64_t *Mi_inv = crt->Mi_inv;
+
+    switch (k) {
+        case 1: {
+            uint64_t recon = 0;
+            for (int r = 0; r < n; r++) {
+                uint64_t term = residues[r] % crt->mods[r].mod;
+                term = (term * Mi[r]) % M;
+                term = (term * Mi_inv[r]) % M;
+                recon = (recon + term) % M;
+            }
+            result[0] = recon;
+            break;
+        }
+        case 2: {
+            uint64_t recon0 = 0, recon1 = 0;
+            for (int r = 0; r < n; r++) {
+                uint64_t mod_r = crt->mods[r].mod;
+                uint64_t Mi_r = Mi[r];
+                uint64_t Mi_inv_r = Mi_inv[r];
+
+                uint64_t term0 = residues[r * 2] % mod_r;
+                term0 = (term0 * Mi_r) % M;
+                term0 = (term0 * Mi_inv_r) % M;
+                recon0 = (recon0 + term0) % M;
+
+                uint64_t term1 = residues[r * 2 + 1] % mod_r;
+                term1 = (term1 * Mi_r) % M;
+                term1 = (term1 * Mi_inv_r) % M;
+                recon1 = (recon1 + term1) % M;
+            }
+            result[0] = recon0;
+            result[1] = recon1;
+            break;
+        }
+        default:
+            // Fall back to general batch for k > 2
+            orion_crt_reconstruct_fast_batch(crt, residues, k, result);
+            break;
+    }
+}
+
 void orion_tile_layout_init(TileLayout *tile, int dim, int max_tile) {
     memset(tile, 0, sizeof(TileLayout));
 

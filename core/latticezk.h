@@ -167,6 +167,16 @@ void latticezk_crt_reconstruct(
     uint64_t *result
 );
 
+/// Batch CRT reconstruction for better cache locality
+/// Processes all k outputs at once with contiguous memory access
+void latticezk_crt_reconstruct_batch(
+    const float *residues,
+    int k,
+    const LatticeZKRNSConfig *rns,
+    uint64_t q,
+    uint64_t *result
+);
+
 // ============================================================================
 // High-Level API
 // ============================================================================
