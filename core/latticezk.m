@@ -990,31 +990,48 @@ static bool latticezk_rns_poly_eval(
 ) {
     if (!coeffs || !x || !residues_out || !mods) return false;
 
+    // Static buffers for RNS decomposition (reuse to avoid malloc/free overhead)
+    static float *s_decomp_coeffs = NULL;
+    static float *s_decomp_x = NULL;
+    static int s_coeffs_capacity = 0;
+    static int s_x_capacity = 0;
+
     // For each RNS modulus, decompose coefficients and evaluate
     for (int r = 0; r < n_mods; r++) {
         uint32_t mod = mods[r].mod;
 
         // Create coefficient blob for this residue (decomposed)
         int coeff_count = n_polys * (degree + 1);
-        float *decomposed_coeffs = (float *)malloc(coeff_count * sizeof(float));
-        for (int i = 0; i < coeff_count; i++) {
-            // Decompose coefficient into this residue
-            decomposed_coeffs[i] = (float)((uint32_t)coeffs[i] % mod);
+
+        // Ensure static buffer is large enough
+        if (coeff_count > s_coeffs_capacity) {
+            free(s_decomp_coeffs);
+            s_decomp_coeffs = (float *)malloc(coeff_count * sizeof(float));
+            s_coeffs_capacity = s_decomp_coeffs ? coeff_count : 0;
         }
 
-        // Decompose x values for this residue
-        float *decomposed_x = (float *)malloc(seq * sizeof(float));
+        // Ensure x buffer is large enough
+        if (seq > s_x_capacity) {
+            free(s_decomp_x);
+            s_decomp_x = (float *)malloc(seq * sizeof(float));
+            s_x_capacity = s_decomp_x ? seq : 0;
+        }
+
+        if (!s_decomp_coeffs || !s_decomp_x) return false;
+
+        for (int i = 0; i < coeff_count; i++) {
+            // Decompose coefficient into this residue
+            s_decomp_coeffs[i] = (float)((uint32_t)coeffs[i] % mod);
+        }
+
         for (int s = 0; s < seq; s++) {
-            decomposed_x[s] = (float)((uint32_t)x[s] % mod);
+            s_decomp_x[s] = (float)((uint32_t)x[s] % mod);
         }
 
         // Evaluate polynomials at this residue
         float *poly_results = residues_out + r * n_polys * seq;
         bool ok = latticezk_batch_poly_eval_one_residue(
-            decomposed_coeffs, decomposed_x, n_polys, degree, poly_results, seq, r);
-
-        free(decomposed_coeffs);
-        free(decomposed_x);
+            s_decomp_coeffs, s_decomp_x, n_polys, degree, poly_results, seq, r);
 
         if (!ok) return false;
     }
@@ -1645,21 +1662,9 @@ bool orion_ntt_forward(
         return false;
     }
 
-    // Get twiddle factors (from cache or compute)
-    uint32_t *twiddles;
-    bool cached = false;
-    for (int i = 0; i < gNttCache.count; i++) {
-        NTTCacheEntry *e = &gNttCache.entries[i];
-        if (e->valid && e->n == n && e->q == q && e->g == g) {
-            twiddles = e->twiddles;
-            cached = true;
-            break;
-        }
-    }
-    if (!cached) {
-        twiddles = (uint32_t *)malloc(n * sizeof(uint32_t));
-        orion_ntt_generate_twiddles(twiddles, n, g, q);
-    }
+    // Get twiddle factors using cache
+    uint32_t *twiddles = compute_and_cache_twiddles(n, q, g);
+    if (!twiddles) return false;
 
     // Bit reversal
     orion_ntt_bit_reverse(data, n);
@@ -1675,7 +1680,6 @@ bool orion_ntt_forward(
     OrionProgram *prog = orion_mil_cache_get([mil_text UTF8String], wdict, "ntt_fwd");
     if (!prog) {
         // Fall back to CPU
-        if (!cached) free(twiddles);
         return false;
     }
 
@@ -1707,7 +1711,6 @@ bool orion_ntt_forward(
 
     iosurface_pool_release(ioX);
     iosurface_pool_release(ioY);
-    if (!cached) free(twiddles);
     return ok;
 }
 
@@ -1733,21 +1736,9 @@ bool orion_ntt_forward_batch(
         return false;
     }
 
-    // Get twiddle factors (from cache or compute)
-    uint32_t *twiddles;
-    bool cached = false;
-    for (int i = 0; i < gNttCache.count; i++) {
-        NTTCacheEntry *e = &gNttCache.entries[i];
-        if (e->valid && e->n == n && e->q == q && e->g == g) {
-            twiddles = e->twiddles;
-            cached = true;
-            break;
-        }
-    }
-    if (!cached) {
-        twiddles = (uint32_t *)malloc(n * sizeof(uint32_t));
-        orion_ntt_generate_twiddles(twiddles, n, g, q);
-    }
+    // Get twiddle factors using cache
+    uint32_t *twiddles = compute_and_cache_twiddles(n, q, g);
+    if (!twiddles) return false;
 
     // Bit reversal for each polynomial
     for (int p = 0; p < n_polys; p++) {
@@ -1765,7 +1756,6 @@ bool orion_ntt_forward_batch(
     snprintf(tag, sizeof(tag), "ntt_batch_np%d_n%d", n_polys, n);
     OrionProgram *prog = orion_mil_cache_get([mil_text UTF8String], wdict, tag);
     if (!prog) {
-        if (!cached) free(twiddles);
         return false;
     }
 
@@ -1800,7 +1790,6 @@ bool orion_ntt_forward_batch(
 
     iosurface_pool_release(ioX);
     iosurface_pool_release(ioY);
-    if (!cached) free(twiddles);
     return ok;
 }
 
