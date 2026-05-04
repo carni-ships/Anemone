@@ -143,17 +143,47 @@ void orion_crt_reconstruct_fast_batch(const OrionCRTP *crt, const uint32_t *resi
     const uint64_t *Mi = crt->Mi;
     const uint64_t *Mi_inv = crt->Mi_inv;
 
-    // For small moduli, we can use optimized inline math
-    // Each term is small enough to multiply directly without overflow
-    for (int i = 0; i < k; i++) {
+    // Process 4 outputs at a time with full unrolling
+    int i = 0;
+    for (; i + 4 <= k; i += 4) {
+        uint64_t recon0 = 0, recon1 = 0, recon2 = 0, recon3 = 0;
+        for (int r = 0; r < n; r++) {
+            uint64_t Mi_r = Mi[r];
+            uint64_t Mi_inv_r = Mi_inv[r];
+            uint64_t mod_r = crt->mods[r].mod;
+            uint64_t base_idx = r * k;
+
+            uint64_t term0 = residues[base_idx + i] % mod_r;
+            term0 = (term0 * Mi_r) % M;
+            term0 = (term0 * Mi_inv_r) % M;
+            recon0 = (recon0 + term0) % M;
+
+            uint64_t term1 = residues[base_idx + i + 1] % mod_r;
+            term1 = (term1 * Mi_r) % M;
+            term1 = (term1 * Mi_inv_r) % M;
+            recon1 = (recon1 + term1) % M;
+
+            uint64_t term2 = residues[base_idx + i + 2] % mod_r;
+            term2 = (term2 * Mi_r) % M;
+            term2 = (term2 * Mi_inv_r) % M;
+            recon2 = (recon2 + term2) % M;
+
+            uint64_t term3 = residues[base_idx + i + 3] % mod_r;
+            term3 = (term3 * Mi_r) % M;
+            term3 = (term3 * Mi_inv_r) % M;
+            recon3 = (recon3 + term3) % M;
+        }
+        result[i] = recon0;
+        result[i + 1] = recon1;
+        result[i + 2] = recon2;
+        result[i + 3] = recon3;
+    }
+    // Handle remainder
+    for (; i < k; i++) {
         uint64_t recon = 0;
         for (int r = 0; r < n; r++) {
-            uint64_t mod_r = crt->mods[r].mod;
-            uint64_t residue = residues[r * k + i];
-
-            // Inline multiplication - compiler can optimize this better
-            // when values are known to be small
-            uint64_t term = (residue * Mi[r]) % M;
+            uint64_t term = residues[r * k + i] % crt->mods[r].mod;
+            term = (term * Mi[r]) % M;
             term = (term * Mi_inv[r]) % M;
             recon = (recon + term) % M;
         }
