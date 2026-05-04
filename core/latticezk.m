@@ -145,6 +145,64 @@ static void iosurface_pool_init(int capacity);
 static IOSurfaceRef iosurface_pool_get(int channels, int seq_len, bool fp32);
 static void iosurface_pool_release(IOSurfaceRef surface);
 
+// Cached compiled programs and weight blobs for MatVec
+// Key: (k, l, seq, mod_idx) -> (prog, blob)
+typedef struct {
+    OrionProgram *prog;
+    NSData *blob;
+} MatVecCacheEntry;
+
+static MatVecCacheEntry *g_matvec_cache = NULL;
+static int g_matvec_cache_capacity = 0;
+static int g_matvec_cache_count = 0;
+static int g_matvec_cache_k = 0, g_matvec_cache_l = 0;
+
+static void matvec_cache_init(int k, int l) {
+    if (g_matvec_cache && g_matvec_cache_k == k && g_matvec_cache_l == l) {
+        return;  // Already initialized for this k,l
+    }
+    // Free old cache
+    if (g_matvec_cache) {
+        for (int i = 0; i < g_matvec_cache_count; i++) {
+            if (g_matvec_cache[i].blob) {
+                // Don't release blob - it's NSData and will be freed when deallocated
+            }
+        }
+        free(g_matvec_cache);
+    }
+    g_matvec_cache_capacity = 64;  // Enough for all residue indices
+    g_matvec_cache = calloc(g_matvec_cache_capacity, sizeof(MatVecCacheEntry));
+    g_matvec_cache_count = 0;
+    g_matvec_cache_k = k;
+    g_matvec_cache_l = l;
+}
+
+static OrionProgram* matvec_cache_get_prog(int k, int l, int seq, int mod_idx,
+                                           const float *A) {
+    // Linear search is fine - small cache
+    for (int i = 0; i < g_matvec_cache_count; i++) {
+        if (i == mod_idx) return g_matvec_cache[i].prog;
+    }
+    return NULL;
+}
+
+static NSData* matvec_cache_get_blob(int mod_idx) {
+    for (int i = 0; i < g_matvec_cache_count; i++) {
+        if (i == mod_idx) return g_matvec_cache[i].blob;
+    }
+    return NULL;
+}
+
+static void matvec_cache_store(int mod_idx, OrionProgram *prog, NSData *blob) {
+    if (mod_idx >= g_matvec_cache_capacity) return;
+    while (g_matvec_cache_count <= mod_idx) {
+        g_matvec_cache[g_matvec_cache_count++].prog = NULL;
+        g_matvec_cache[g_matvec_cache_count - 1].blob = NULL;
+    }
+    g_matvec_cache[mod_idx].prog = prog;
+    g_matvec_cache[mod_idx].blob = blob;  // Keep reference
+}
+
 static NSData *make_blob_matrix_friendly(int k, int l, const float *data, int mod) {
     // Store matrix directly - values should already be in safe range [-2, 2]
     int ws = k * l * 2;
@@ -171,24 +229,35 @@ static bool eval_matvec_on_ane(
     float *result,
     int mod_idx
 ) {
-    // Initialize pool on first use
+    // Initialize pools and cache
     static dispatch_once_t once_token;
     dispatch_once(&once_token, ^{
         iosurface_pool_init(16);  // MatVec needs at most 2 surfaces per call
+        matvec_cache_init(k, l);   // Initialize program cache
     });
 
-    NSString *mil_text = build_latticezk_mil(k, l, seq, mod_idx);
-    NSString *key = [NSString stringWithFormat:@"@model_path/weights/A%d.bin", mod_idx];
-    NSData *blob = make_blob_matrix_friendly(k, l, A, mod_idx);
-    NSDictionary *wdict = @{key: @{@"offset": @0, @"data": blob}};
+    // Check cache for compiled program (same MIL for all mod_idx when k,l,seq same)
+    OrionProgram *prog = matvec_cache_get_prog(k, l, seq, mod_idx, A);
+    NSData *blob = NULL;
 
-    char tag[32];
-    snprintf(tag, sizeof(tag), "lz_r%d", mod_idx);
-
-    OrionProgram *prog = orion_mil_cache_get([mil_text UTF8String], wdict, tag);
     if (!prog) {
-        fprintf(stderr, "latticezk: failed to compile mod %d\n", mod_idx);
-        return false;
+        // Need to compile new program
+        NSString *mil_text = build_latticezk_mil(k, l, seq, 0);  // mod_idx doesn't affect MIL
+        NSString *key = @"@model_path/weights/A.bin";
+        blob = make_blob_matrix_friendly(k, l, A, 0);  // 0 doesn't affect blob
+        NSDictionary *wdict = @{key: @{@"offset": @0, @"data": blob}};
+
+        char tag[32];
+        snprintf(tag, sizeof(tag), "lz_matvec_%d_%d_%d", k, l, seq);
+
+        prog = orion_mil_cache_get([mil_text UTF8String], wdict, tag);
+        if (!prog) {
+            fprintf(stderr, "latticezk: failed to compile for k=%d l=%d seq=%d\n", k, l, seq);
+            return false;
+        }
+
+        // Store in cache
+        matvec_cache_store(mod_idx, prog, blob);
     }
 
     // Get surfaces from pool (reuse if dimensions match)
