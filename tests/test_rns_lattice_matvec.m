@@ -20,6 +20,7 @@
 #import "iosurface_tensor.h"
 #import "mil_builder.h"
 #import "mil_cache.h"
+#import "rns.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -39,10 +40,7 @@ static int g_pass = 0, g_fail = 0;
 // RNS moduli organized by size tier
 // fp16 safe range: moduli < 128 for production (10-bit mantissa)
 
-typedef struct {
-    uint32_t mod;
-    const char *name;
-} RNSMod;
+// Note: RNSMod and TileLayout types are now in rns.h
 
 // Tiny moduli (Phase 0 baseline)
 #define TINY_N 5
@@ -216,12 +214,7 @@ static NSString *build_rns_single_mil(int dim, int seq, int residue_idx,
 // When matrix dimension exceeds ANE SRAM capacity, split into tiles.
 // Each tile ≤ 2048 fits the sweet spot. Results accumulated on CPU.
 
-typedef struct {
-    int n_tiles;        // number of tiles
-    int tile_size;      // size of each tile (except possibly last)
-    int last_tile_size; // size of last tile
-    int *tile_offsets;   // starting row/col for each tile
-} TileLayout;
+// Note: TileLayout type is defined in rns.h
 
 // Compute tile layout for a given dimension and max tile size
 static TileLayout compute_tile_layout(int dim, int max_tile_dim) {

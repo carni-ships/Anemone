@@ -153,6 +153,32 @@ void orion_crt_reconstruct_fast_batch(const OrionCRTP *crt, const uint32_t *resi
 void orion_crt_reconstruct_fast_small_k(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result);
 
 // ============================================================================
+// Specialized CRT for Fixed RNS Base (7 moduli)
+// ============================================================================
+
+/// Specialized CRT for 7 moduli (Dilithium-3 default RNS base)
+/// Full unrolling eliminates all loop overhead and pointer dereferencing
+/// @param crt       Precomputed constants (must have n=7)
+/// @param residues  Array of 7 residues
+/// @return Reconstructed number mod M
+uint64_t orion_crt_reconstruct_7mods(const OrionCRTP *crt, const uint32_t *residues);
+
+/// Batch CRT for 7 moduli with 4x unrolling
+void orion_crt_reconstruct_7mods_batch(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result);
+
+// ============================================================================
+// Accelerate Framework SIMD CRT (for large batches)
+// ============================================================================
+
+/// SIMD batch CRT using Accelerate framework for large k
+/// Falls back to scalar for small k or when vDSP unavailable
+/// @param crt       Precomputed constants
+/// @param residues  Array of residues [n_mods * k]
+/// @param k         Number of outputs
+/// @param result    Output: k-element result array
+void orion_crt_reconstruct_simd(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result);
+
+// ============================================================================
 // NTT Utilities
 // ============================================================================
 

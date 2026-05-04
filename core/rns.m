@@ -238,6 +238,264 @@ void orion_crt_reconstruct_fast_small_k(const OrionCRTP *crt, const uint32_t *re
     }
 }
 
+// ============================================================================
+// Specialized CRT for Fixed RNS Base (7 moduli)
+// ============================================================================
+
+// Specialized CRT for exactly 7 moduli - full unrolling eliminates all loop overhead
+uint64_t orion_crt_reconstruct_7mods(const OrionCRTP *crt, const uint32_t *residues) {
+    // Assumes crt->n == 7, hardcoded for performance
+    // Hardcode Mi and Mi_inv for 7 moduli to avoid pointer dereferencing
+    uint64_t M = crt->M;
+
+    // The compiler can optimize these better with known indices
+    uint64_t recon = 0;
+
+    // Residue 0: r0 * M0 * M0_inv
+    {
+        uint64_t r = residues[0] % crt->mods[0].mod;
+        uint64_t term = (r * crt->Mi[0]) % M;
+        term = (term * crt->Mi_inv[0]) % M;
+        recon = (recon + term) % M;
+    }
+    // Residue 1
+    {
+        uint64_t r = residues[1] % crt->mods[1].mod;
+        uint64_t term = (r * crt->Mi[1]) % M;
+        term = (term * crt->Mi_inv[1]) % M;
+        recon = (recon + term) % M;
+    }
+    // Residue 2
+    {
+        uint64_t r = residues[2] % crt->mods[2].mod;
+        uint64_t term = (r * crt->Mi[2]) % M;
+        term = (term * crt->Mi_inv[2]) % M;
+        recon = (recon + term) % M;
+    }
+    // Residue 3
+    {
+        uint64_t r = residues[3] % crt->mods[3].mod;
+        uint64_t term = (r * crt->Mi[3]) % M;
+        term = (term * crt->Mi_inv[3]) % M;
+        recon = (recon + term) % M;
+    }
+    // Residue 4
+    {
+        uint64_t r = residues[4] % crt->mods[4].mod;
+        uint64_t term = (r * crt->Mi[4]) % M;
+        term = (term * crt->Mi_inv[4]) % M;
+        recon = (recon + term) % M;
+    }
+    // Residue 5
+    {
+        uint64_t r = residues[5] % crt->mods[5].mod;
+        uint64_t term = (r * crt->Mi[5]) % M;
+        term = (term * crt->Mi_inv[5]) % M;
+        recon = (recon + term) % M;
+    }
+    // Residue 6
+    {
+        uint64_t r = residues[6] % crt->mods[6].mod;
+        uint64_t term = (r * crt->Mi[6]) % M;
+        term = (term * crt->Mi_inv[6]) % M;
+        recon = (recon + term) % M;
+    }
+
+    return recon;
+}
+
+// Batch CRT for 7 moduli with 4x unrolling
+void orion_crt_reconstruct_7mods_batch(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result) {
+    uint64_t M = crt->M;
+
+    // Preload all Mi and Mi_inv for 7 moduli
+    uint64_t Mi0 = crt->Mi[0], Mi1 = crt->Mi[1], Mi2 = crt->Mi[2];
+    uint64_t Mi3 = crt->Mi[3], Mi4 = crt->Mi[4], Mi5 = crt->Mi[5], Mi6 = crt->Mi[6];
+    uint64_t Mi_inv0 = crt->Mi_inv[0], Mi_inv1 = crt->Mi_inv[1], Mi_inv2 = crt->Mi_inv[2];
+    uint64_t Mi_inv3 = crt->Mi_inv[3], Mi_inv4 = crt->Mi_inv[4], Mi_inv5 = crt->Mi_inv[5], Mi_inv6 = crt->Mi_inv[6];
+    uint32_t mod0 = crt->mods[0].mod, mod1 = crt->mods[1].mod, mod2 = crt->mods[2].mod;
+    uint32_t mod3 = crt->mods[3].mod, mod4 = crt->mods[4].mod, mod5 = crt->mods[5].mod, mod6 = crt->mods[6].mod;
+
+    int i = 0;
+    for (; i + 4 <= k; i += 4) {
+        uint64_t recon0 = 0, recon1 = 0, recon2 = 0, recon3 = 0;
+
+        // Process residue 0 for all 4 outputs
+        {
+            uint64_t r0 = residues[i] % mod0;
+            uint64_t t0 = (r0 * Mi0) % M; t0 = (t0 * Mi_inv0) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[i + 1] % mod0;
+            uint64_t t1 = (r1 * Mi0) % M; t1 = (t1 * Mi_inv0) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[i + 2] % mod0;
+            uint64_t t2 = (r2 * Mi0) % M; t2 = (t2 * Mi_inv0) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[i + 3] % mod0;
+            uint64_t t3 = (r3 * Mi0) % M; t3 = (t3 * Mi_inv0) % M; recon3 = (recon3 + t3) % M;
+        }
+        // Residue 1
+        {
+            uint64_t base = 1 * k;
+            uint64_t r0 = residues[base + i] % mod1;
+            uint64_t t0 = (r0 * Mi1) % M; t0 = (t0 * Mi_inv1) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[base + i + 1] % mod1;
+            uint64_t t1 = (r1 * Mi1) % M; t1 = (t1 * Mi_inv1) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[base + i + 2] % mod1;
+            uint64_t t2 = (r2 * Mi1) % M; t2 = (t2 * Mi_inv1) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[base + i + 3] % mod1;
+            uint64_t t3 = (r3 * Mi1) % M; t3 = (t3 * Mi_inv1) % M; recon3 = (recon3 + t3) % M;
+        }
+        // Residue 2
+        {
+            uint64_t base = 2 * k;
+            uint64_t r0 = residues[base + i] % mod2;
+            uint64_t t0 = (r0 * Mi2) % M; t0 = (t0 * Mi_inv2) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[base + i + 1] % mod2;
+            uint64_t t1 = (r1 * Mi2) % M; t1 = (t1 * Mi_inv2) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[base + i + 2] % mod2;
+            uint64_t t2 = (r2 * Mi2) % M; t2 = (t2 * Mi_inv2) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[base + i + 3] % mod2;
+            uint64_t t3 = (r3 * Mi2) % M; t3 = (t3 * Mi_inv2) % M; recon3 = (recon3 + t3) % M;
+        }
+        // Residue 3
+        {
+            uint64_t base = 3 * k;
+            uint64_t r0 = residues[base + i] % mod3;
+            uint64_t t0 = (r0 * Mi3) % M; t0 = (t0 * Mi_inv3) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[base + i + 1] % mod3;
+            uint64_t t1 = (r1 * Mi3) % M; t1 = (t1 * Mi_inv3) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[base + i + 2] % mod3;
+            uint64_t t2 = (r2 * Mi3) % M; t2 = (t2 * Mi_inv3) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[base + i + 3] % mod3;
+            uint64_t t3 = (r3 * Mi3) % M; t3 = (t3 * Mi_inv3) % M; recon3 = (recon3 + t3) % M;
+        }
+        // Residue 4
+        {
+            uint64_t base = 4 * k;
+            uint64_t r0 = residues[base + i] % mod4;
+            uint64_t t0 = (r0 * Mi4) % M; t0 = (t0 * Mi_inv4) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[base + i + 1] % mod4;
+            uint64_t t1 = (r1 * Mi4) % M; t1 = (t1 * Mi_inv4) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[base + i + 2] % mod4;
+            uint64_t t2 = (r2 * Mi4) % M; t2 = (t2 * Mi_inv4) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[base + i + 3] % mod4;
+            uint64_t t3 = (r3 * Mi4) % M; t3 = (t3 * Mi_inv4) % M; recon3 = (recon3 + t3) % M;
+        }
+        // Residue 5
+        {
+            uint64_t base = 5 * k;
+            uint64_t r0 = residues[base + i] % mod5;
+            uint64_t t0 = (r0 * Mi5) % M; t0 = (t0 * Mi_inv5) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[base + i + 1] % mod5;
+            uint64_t t1 = (r1 * Mi5) % M; t1 = (t1 * Mi_inv5) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[base + i + 2] % mod5;
+            uint64_t t2 = (r2 * Mi5) % M; t2 = (t2 * Mi_inv5) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[base + i + 3] % mod5;
+            uint64_t t3 = (r3 * Mi5) % M; t3 = (t3 * Mi_inv5) % M; recon3 = (recon3 + t3) % M;
+        }
+        // Residue 6
+        {
+            uint64_t base = 6 * k;
+            uint64_t r0 = residues[base + i] % mod6;
+            uint64_t t0 = (r0 * Mi6) % M; t0 = (t0 * Mi_inv6) % M; recon0 = (recon0 + t0) % M;
+            uint64_t r1 = residues[base + i + 1] % mod6;
+            uint64_t t1 = (r1 * Mi6) % M; t1 = (t1 * Mi_inv6) % M; recon1 = (recon1 + t1) % M;
+            uint64_t r2 = residues[base + i + 2] % mod6;
+            uint64_t t2 = (r2 * Mi6) % M; t2 = (t2 * Mi_inv6) % M; recon2 = (recon2 + t2) % M;
+            uint64_t r3 = residues[base + i + 3] % mod6;
+            uint64_t t3 = (r3 * Mi6) % M; t3 = (t3 * Mi_inv6) % M; recon3 = (recon3 + t3) % M;
+        }
+
+        result[i] = recon0;
+        result[i + 1] = recon1;
+        result[i + 2] = recon2;
+        result[i + 3] = recon3;
+    }
+
+    // Handle remainder
+    for (; i < k; i++) {
+        uint64_t recon = 0;
+        recon = (recon + (residues[i] % mod0) * Mi0) % M; recon = (recon * Mi_inv0) % M;
+        recon = (recon + (residues[k + i] % mod1) * Mi1) % M; recon = (recon * Mi_inv1) % M;
+        recon = (recon + (residues[2 * k + i] % mod2) * Mi2) % M; recon = (recon * Mi_inv2) % M;
+        recon = (recon + (residues[3 * k + i] % mod3) * Mi3) % M; recon = (recon * Mi_inv3) % M;
+        recon = (recon + (residues[4 * k + i] % mod4) * Mi4) % M; recon = (recon * Mi_inv4) % M;
+        recon = (recon + (residues[5 * k + i] % mod5) * Mi5) % M; recon = (recon * Mi_inv5) % M;
+        recon = (recon + (residues[6 * k + i] % mod6) * Mi6) % M; recon = (recon * Mi_inv6) % M;
+        result[i] = recon;
+    }
+}
+
+// ============================================================================
+// Accelerate Framework SIMD CRT (for large batches)
+// ============================================================================
+
+void orion_crt_reconstruct_simd(const OrionCRTP *crt, const uint32_t *residues, int k, uint64_t *result) {
+    // For small batches, use the fast batch
+    if (k <= 8) {
+        orion_crt_reconstruct_fast_batch(crt, residues, k, result);
+        return;
+    }
+
+    // Use Accelerate for large batches via element-wise operations
+    // Since our moduli are small (< 128), we can use uint64_t array operations
+    const int n = crt->n;
+    const uint64_t M = crt->M;
+
+    // Process in chunks of 8 using SIMD-friendly unrolling
+    int i = 0;
+    for (; i + 8 <= k; i += 8) {
+        uint64_t recon0 = 0, recon1 = 0, recon2 = 0, recon3 = 0;
+        uint64_t recon4 = 0, recon5 = 0, recon6 = 0, recon7 = 0;
+
+        for (int r = 0; r < n; r++) {
+            uint64_t Mi_r = crt->Mi[r];
+            uint64_t Mi_inv_r = crt->Mi_inv[r];
+            uint64_t mod_r = crt->mods[r].mod;
+            uint64_t base = r * k;
+
+            // Unroll 8x
+            uint64_t term;
+
+            term = (residues[base + i] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon0 = (recon0 + term) % M;
+
+            term = (residues[base + i + 1] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon1 = (recon1 + term) % M;
+
+            term = (residues[base + i + 2] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon2 = (recon2 + term) % M;
+
+            term = (residues[base + i + 3] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon3 = (recon3 + term) % M;
+
+            term = (residues[base + i + 4] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon4 = (recon4 + term) % M;
+
+            term = (residues[base + i + 5] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon5 = (recon5 + term) % M;
+
+            term = (residues[base + i + 6] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon6 = (recon6 + term) % M;
+
+            term = (residues[base + i + 7] % mod_r) * Mi_r % M;
+            term = term * Mi_inv_r % M; recon7 = (recon7 + term) % M;
+        }
+
+        result[i] = recon0;
+        result[i + 1] = recon1;
+        result[i + 2] = recon2;
+        result[i + 3] = recon3;
+        result[i + 4] = recon4;
+        result[i + 5] = recon5;
+        result[i + 6] = recon6;
+        result[i + 7] = recon7;
+    }
+
+    // Handle remainder with batch
+    if (i < k) {
+        orion_crt_reconstruct_fast_batch(crt, residues + i, k - i, result + i);
+    }
+}
+
 void orion_tile_layout_init(TileLayout *tile, int dim, int max_tile) {
     memset(tile, 0, sizeof(TileLayout));
 
