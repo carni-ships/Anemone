@@ -305,10 +305,22 @@ bool latticezk_rns_matvec(
     int n_mods,
     const LatticeZKRNSConfig *rns
 ) {
+    // Default to seq=16 (ANE minimum)
+    return latticezk_rns_matvec_batch(A, s, k, l, residues_out, n_mods, rns, 16);
+}
+
+bool latticezk_rns_matvec_batch(
+    const float *A,
+    const float *s,
+    int k, int l,
+    float *residues_out,
+    int n_mods,
+    const LatticeZKRNSConfig *rns,
+    int seq
+) {
     if (!A || !s || !residues_out || !rns) return false;
     if (n_mods != rns->n_mods) return false;
-
-    const int seq = 16;  // ANE minimum batch size
+    if (seq < 16) seq = 16;  // Enforce minimum
 
     for (int r = 0; r < n_mods; r++) {
         float *out = residues_out + r * k;
@@ -318,6 +330,117 @@ bool latticezk_rns_matvec(
     }
 
     return true;
+}
+
+void latticezk_rns_matvec_async(
+    const float *A,
+    const float *s,
+    int k, int l,
+    float *residues_out,
+    int n_mods,
+    const LatticeZKRNSConfig *rns,
+    dispatch_queue_t queue,
+    void (*callback)(bool success)
+) {
+    if (!A || !s || !residues_out || !rns) {
+        if (callback) callback(false);
+        return;
+    }
+    if (n_mods != rns->n_mods) {
+        if (callback) callback(false);
+        return;
+    }
+
+    dispatch_queue_t q = queue ?: dispatch_get_main_queue();
+    dispatch_group_t group = dispatch_group_create();
+    __block bool ok = true;
+
+    for (int r = 0; r < n_mods; r++) {
+        dispatch_group_enter(group);
+        dispatch_async(q, ^{
+            float *out = residues_out + r * k;
+            bool result = eval_matvec_on_ane(k, l, 16, A, s, out, r);
+            if (!result) ok = false;
+            dispatch_group_leave(group);
+        });
+    }
+
+    dispatch_group_notify(group, q, ^{
+        if (callback) callback(ok);
+    });
+}
+
+#pragma mark - Large Batch MatVec (for high throughput)
+
+static bool eval_matvec_large_batch(
+    int k, int l, int seq,
+    const float *A,
+    const float *s,
+    float *result,
+    int mod_idx,
+    int n_polys  // Number of polynomials to evaluate at once
+) {
+    // Initialize pool on first use
+    static dispatch_once_t once_token;
+    dispatch_once(&once_token, ^{
+        iosurface_pool_init(32);  // Need more surfaces for batching
+    });
+
+    // For batch, we create a larger surface that holds all polynomials
+    // Each "column" of the surface corresponds to one polynomial's input
+
+    // Check cache for compiled program
+    OrionProgram *prog = matvec_cache_get_prog(k, l, seq, mod_idx, A);
+    if (!prog) {
+        NSString *mil_text = build_latticezk_mil(k, l, seq, 0);
+        NSString *key = @"@model_path/weights/A.bin";
+        NSData *blob = make_blob_matrix_friendly(k, l, A, 0);
+        NSDictionary *wdict = @{key: @{@"offset": @0, @"data": blob}};
+
+        char tag[32];
+        snprintf(tag, sizeof(tag), "lz_matvec_%d_%d_%d", k, l, seq);
+
+        prog = orion_mil_cache_get([mil_text UTF8String], wdict, tag);
+        if (!prog) {
+            fprintf(stderr, "latticezk: failed to compile for k=%d l=%d seq=%d\n", k, l, seq);
+            return false;
+        }
+        matvec_cache_store(mod_idx, prog, blob);
+    }
+
+    // Get surfaces - larger for batch
+    IOSurfaceRef ioX = iosurface_pool_get(l * n_polys, seq, true);
+    IOSurfaceRef ioY = iosurface_pool_get(k * n_polys, seq, true);
+
+    // Write input: broadcast s across all polynomial columns
+    IOSurfaceLock(ioX, 0, NULL);
+    float *pX = (float *)IOSurfaceGetBaseAddress(ioX);
+    for (int poly = 0; poly < n_polys; poly++) {
+        for (int j = 0; j < l; j++) {
+            float val = s[j];
+            for (int si = 0; si < seq; si++) {
+                pX[(poly * l + j) * seq + si] = val;
+            }
+        }
+    }
+    IOSurfaceUnlock(ioX, 0, NULL);
+
+    bool ok = orion_eval(prog, (IOSurfaceRef[]){ioX}, 1, (IOSurfaceRef[]){ioY}, 1);
+
+    if (ok) {
+        IOSurfaceLock(ioY, kIOSurfaceLockReadOnly, NULL);
+        float *pY = (float *)IOSurfaceGetBaseAddress(ioY);
+        for (int i = 0; i < k; i++) {
+            for (int poly = 0; poly < n_polys; poly++) {
+                result[poly * k + i] = pY[(poly * k + i) * seq + 0];
+            }
+        }
+        IOSurfaceUnlock(ioY, kIOSurfaceLockReadOnly, NULL);
+    }
+
+    iosurface_pool_release(ioX);
+    iosurface_pool_release(ioY);
+    return ok;
 }
 
 void latticezk_crt_reconstruct(

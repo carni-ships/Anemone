@@ -153,6 +153,49 @@ bool latticezk_rns_matvec(
     const LatticeZKRNSConfig *rns
 );
 
+/// Async version: Compute A*s mod q for all residues in parallel on ANE
+/// Uses dispatch_async to pipeline all residue evaluations
+/// @param A         k×l matrix (row-major, fp32)
+/// @param s         l-element vector (fp32)
+/// @param k         A matrix rows
+/// @param l         A matrix cols
+/// @param residues  Output: k-element result for each residue (k×n_mods total)
+/// @param n_mods    Number of RNS moduli
+/// @param rns        RNS configuration
+/// @param queue      dispatch queue for async (NULL = main queue)
+/// @param callback   Called when all evaluations complete (true=success)
+void latticezk_rns_matvec_async(
+    const float *A,
+    const float *s,
+    int k, int l,
+    float *residues_out,
+    int n_mods,
+    const LatticeZKRNSConfig *rns,
+    dispatch_queue_t queue,
+    void (*callback)(bool success)
+);
+
+/// Compute A*s with configurable batch size for higher throughput
+/// Larger seq amortizes ANE launch overhead
+/// @param A         k×l matrix (row-major, fp32)
+/// @param s         l-element vector (fp32)
+/// @param k         A matrix rows
+/// @param l         A matrix cols
+/// @param residues  Output: k-element result for each residue (k×n_mods total)
+/// @param n_mods    Number of RNS moduli
+/// @param rns       RNS configuration
+/// @param seq       Batch size (16 = minimum, 64 = recommended, 256 = max)
+/// @return true on success
+bool latticezk_rns_matvec_batch(
+    const float *A,
+    const float *s,
+    int k, int l,
+    float *residues_out,
+    int n_mods,
+    const LatticeZKRNSConfig *rns,
+    int seq
+);
+
 /// Reconstruct full q result from RNS residues via CRT
 /// @param residues   Per-residue results (k×n_mods)
 /// @param k          Number of output elements

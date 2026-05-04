@@ -410,16 +410,30 @@ void orion_crt_reconstruct_7mods_batch(const OrionCRTP *crt, const uint32_t *res
         result[i + 3] = recon3;
     }
 
-    // Handle remainder
+    // Handle remainder - compute each term fully then accumulate
     for (; i < k; i++) {
         uint64_t recon = 0;
-        recon = (recon + (residues[i] % mod0) * Mi0) % M; recon = (recon * Mi_inv0) % M;
-        recon = (recon + (residues[k + i] % mod1) * Mi1) % M; recon = (recon * Mi_inv1) % M;
-        recon = (recon + (residues[2 * k + i] % mod2) * Mi2) % M; recon = (recon * Mi_inv2) % M;
-        recon = (recon + (residues[3 * k + i] % mod3) * Mi3) % M; recon = (recon * Mi_inv3) % M;
-        recon = (recon + (residues[4 * k + i] % mod4) * Mi4) % M; recon = (recon * Mi_inv4) % M;
-        recon = (recon + (residues[5 * k + i] % mod5) * Mi5) % M; recon = (recon * Mi_inv5) % M;
-        recon = (recon + (residues[6 * k + i] % mod6) * Mi6) % M; recon = (recon * Mi_inv6) % M;
+        // Term 0: r0 * M0 * M0_inv
+        uint64_t t = ((residues[i] % mod0) * Mi0) % M;
+        recon = (recon + (t * Mi_inv0) % M) % M;
+        // Term 1: r1 * M1 * M1_inv
+        t = ((residues[k + i] % mod1) * Mi1) % M;
+        recon = (recon + (t * Mi_inv1) % M) % M;
+        // Term 2
+        t = ((residues[2 * k + i] % mod2) * Mi2) % M;
+        recon = (recon + (t * Mi_inv2) % M) % M;
+        // Term 3
+        t = ((residues[3 * k + i] % mod3) * Mi3) % M;
+        recon = (recon + (t * Mi_inv3) % M) % M;
+        // Term 4
+        t = ((residues[4 * k + i] % mod4) * Mi4) % M;
+        recon = (recon + (t * Mi_inv4) % M) % M;
+        // Term 5
+        t = ((residues[5 * k + i] % mod5) * Mi5) % M;
+        recon = (recon + (t * Mi_inv5) % M) % M;
+        // Term 6
+        t = ((residues[6 * k + i] % mod6) * Mi6) % M;
+        recon = (recon + (t * Mi_inv6) % M) % M;
         result[i] = recon;
     }
 }
