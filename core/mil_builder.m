@@ -422,8 +422,8 @@ NSString* orion_mil_poly_eval_horner(const char* prefix, int n_polys, int degree
 }
 
 NSData* orion_make_inner_product_blob(const float *b, int n) {
-    // Create diagonal weight matrix where diagonal = b values
-    int ws = n * n * 2;  // n×n fp16 elements
+    // Create weight matrix for inner product: [1, n, 1, 1] - b values as row vector
+    int ws = n * 2;  // n fp16 elements
     int tot = 128 + ws;
     uint8_t *buf = (uint8_t *)calloc(tot, 1);
 
@@ -436,10 +436,7 @@ NSData* orion_make_inner_product_blob(const float *b, int n) {
 
     _Float16 *fp16 = (_Float16 *)(buf + 128);
     for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            // Diagonal matrix: W[i,j] = b[i] if i==j, else 0
-            fp16[i * n + j] = (i == j) ? (_Float16)b[i] : (_Float16)0.0f;
-        }
+        fp16[i] = (_Float16)b[i];  // W[0, i, 0, 0] = b[i]
     }
 
     return [NSData dataWithBytesNoCopy:buf length:tot freeWhenDone:YES];
@@ -518,9 +515,9 @@ NSString* orion_mil_inner_product(const char* prefix, int n, int seq,
     // So the existing conv approach IS the inner product!
     // The output [1, 1, 1, seq] gives us <a[:,j], b> for each j in seq
 
-    [m appendFormat:@"        tensor<fp16, [1, 1, 1, 1]> %@_W = const()[name = string(\"%@_W\"), "
+    [m appendFormat:@"        tensor<fp16, [1, %d, 1, 1]> %@_W = const()[name = string(\"%@_W\"), "
      "val=tensor<fp16, [1, %d, 1, 1]>(BLOBFILE(path=string(\"%s\"), offset=uint64(64)))];\n",
-     p, p, n, b_path];
+     n, p, p, n, b_path];
 
     [m appendFormat:@"        tensor<fp16, [1, 1, 1, %d]> %@_out = conv("
      "dilations=%@_dl, groups=%@_gr, pad=%@_pd, strides=%@_st, weight=%@_W, x=a16)[name = string(\"%@_out\")];\n",
